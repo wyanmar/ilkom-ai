@@ -11,20 +11,17 @@ pendamping akademik mahasiswa Ilmu Komunikasi.
 Jawablah dalam bahasa Indonesia yang jelas, alami,
 sopan, terstruktur, dan mudah dipahami.
 
-Anda dapat menjawab pertanyaan umum, membantu menjelaskan
-teori komunikasi, menyusun kerangka tugas, memberi contoh,
+Anda dapat menjawab pertanyaan umum, menjelaskan teori
+komunikasi, menyusun kerangka tugas, memberi contoh,
 menganalisis kasus, dan membantu proses belajar.
 
 Untuk pertanyaan akademik:
-- Jelaskan konsep dan berikan contoh yang relevan.
+- Jelaskan konsep dan berikan contoh relevan.
 - Bedakan fakta, pendapat, dan interpretasi.
 - Jangan mengarang referensi, kutipan, DOI, atau ayat.
-- Jika tidak yakin, nyatakan keterbatasan tersebut.
-- Jangan mengklaim telah membaca artikel atau dokumen
-  yang belum diberikan kepada Anda.
-
-Bantu pengguna belajar dan berpikir kritis, bukan sekadar
-memberikan jawaban untuk disalin.
+- Jika tidak yakin, nyatakan keterbatasan.
+- Jangan mengklaim membaca dokumen yang belum diberikan.
+- Bantu pengguna belajar dan berpikir kritis.
 `;
 
 function json(data, status, origin) {
@@ -50,11 +47,11 @@ export default {
   async fetch(request, env) {
     const origin = request.headers.get("Origin");
 
-    if (!origin || !ALLOWED_ORIGINS.has(origin)) {
-      return json({ error: "Origin tidak diizinkan." }, 403);
-    }
-
     if (request.method === "OPTIONS") {
+      if (!origin || !ALLOWED_ORIGINS.has(origin)) {
+        return new Response(null, { status: 403 });
+      }
+
       return new Response(null, {
         status: 204,
         headers: {
@@ -67,16 +64,22 @@ export default {
       });
     }
 
+    if (!origin || !ALLOWED_ORIGINS.has(origin)) {
+      return json({ error: "Origin tidak diizinkan." }, 403);
+    }
+
     if (request.method !== "POST") {
       return json({ error: "Gunakan metode POST." }, 405, origin);
     }
 
     const contentType = request.headers.get("Content-Type") || "";
+
     if (!contentType.toLowerCase().includes("application/json")) {
       return json({ error: "Content-Type harus JSON." }, 415, origin);
     }
 
     const length = Number(request.headers.get("Content-Length") || 0);
+
     if (length > 20000) {
       return json({ error: "Pesan terlalu besar." }, 413, origin);
     }
@@ -89,7 +92,6 @@ export default {
         return json({ error: "Pesan belum diisi." }, 400, origin);
       }
 
-      // Batasi riwayat dan validasi input dari browser.
       const input = messages.slice(-12).map((m) => {
         if (
           !m ||
@@ -111,51 +113,42 @@ export default {
         return json({ error: "Pertanyaan belum ditemukan." }, 400, origin);
       }
 
-      if (!env.OPENAI_API_KEY) {
-        return json({ error: "API belum dikonfigurasi." }, 500, origin);
-      }
-
-      const aiResponse = await fetch(
-        "https://api.openai.com/v1/responses",
-        {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${env.OPENAI_API_KEY}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            model: "gpt-4.1-mini",
-            instructions: SYSTEM_PROMPT,
-            input,
-            max_output_tokens: 1000,
-            store: false
-          })
-        }
-      );
-
-      if (!aiResponse.ok) {
-        console.error("OpenAI status:", aiResponse.status);
+      if (!env.AI || typeof env.AI.run !== "function") {
+        console.error("Workers AI binding AI tidak tersedia.");
 
         return json({
-          error: aiResponse.status === 429
-            ? "Layanan sedang sibuk atau batas penggunaan tercapai."
-            : "AI belum dapat menjawab. Silakan coba lagi."
+          error: "Workers AI belum dikonfigurasi pada Worker."
+        }, 500, origin);
+      }
+
+      let result;
+
+      try {
+        result = await env.AI.run(
+          "@cf/meta/llama-3.1-8b-instruct-fp8",
+          {
+            messages: [
+              { role: "system", content: SYSTEM_PROMPT },
+              ...input
+            ],
+            max_tokens: 1000
+          }
+        );
+      } catch (error) {
+        console.error("Workers AI error:", error.message);
+
+        return json({
+          error: "Layanan AI gagal memproses permintaan. Periksa konfigurasi dan kuota Workers AI."
         }, 502, origin);
       }
 
-      const result = await aiResponse.json();
-
-      const answer = (result.output || [])
-        .filter((item) => item.type === "message")
-        .flatMap((item) => item.content || [])
-        .filter((item) => item.type === "output_text")
-        .map((item) => item.text)
-        .join("\n")
-        .trim();
+      const answer = result?.response?.trim();
 
       if (!answer) {
+        console.error("Workers AI tidak menghasilkan teks.");
+
         return json({
-          error: "AI belum menghasilkan jawaban teks."
+          error: "AI belum menghasilkan jawaban. Silakan coba lagi."
         }, 502, origin);
       }
 
@@ -165,7 +158,7 @@ export default {
       console.error("Request error:", error.message);
 
       return json({
-        error: "Permintaan gagal diproses. Periksa pesan dan coba lagi."
+        error: "Format permintaan tidak valid."
       }, 400, origin);
     }
   }
