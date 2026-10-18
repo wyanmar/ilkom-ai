@@ -67,7 +67,7 @@ export default {
 
       const response = await env.AI.run("@cf/meta/llama-3.1-8b-instruct-fp8", {
         messages: formattedMessages,
-        max_tokens: 600,
+        max_tokens: 400,
         temperature: 0.5,
       });
 
