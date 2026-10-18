@@ -1,6 +1,5 @@
 export default {
   async fetch(request, env) {
-    // Izinkan semua origin sementara untuk memastikan tidak ada blokir CORS
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -8,53 +7,56 @@ export default {
       "Content-Type": "application/json"
     };
 
-    // 1. Handle OPTIONS (CORS Preflight)
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
 
-    // 2. Handle GET (Untuk testing langsung di browser)
     if (request.method === "GET") {
       return new Response(JSON.stringify({ 
         status: "OK", 
-        message: "Worker berjalan! Silakan gunakan metode POST dengan JSON body untuk chat.",
-        ai_binding_status: env.AI ? "BERHASIL TERPASANG ✅" : "GAGAL / TIDAK DITEMUKAN ❌ (Cek wrangler.jsonc atau Dashboard)"
+        ai_binding: env.AI ? "TERPASANG ✅" : "GAGAL ❌"
       }), { status: 200, headers: corsHeaders });
     }
 
-    // 3. Handle POST (Request dari Blog Anda)
     if (request.method === "POST") {
       try {
-        // Cek apakah binding AI ada
         if (!env || !env.AI) {
-          return new Response(JSON.stringify({ error: "CRITICAL: Binding 'AI' tidak ditemukan. Periksa konfigurasi Worker." }), { status: 500, headers: corsHeaders });
+          return new Response(JSON.stringify({ error: "Binding AI tidak ditemukan." }), { status: 500, headers: corsHeaders });
         }
 
-        // Baca JSON dengan aman (catch error jika format salah)
-        const body = await request.json().catch(() => null);
+        // Coba baca JSON, jika gagal tangkap errornya
+        let body;
+        try {
+          body = await request.json();
+        } catch (e) {
+          console.error("Gagal parse JSON dari request:", e);
+          return new Response(JSON.stringify({ error: "Request bukan format JSON yang valid." }), { status: 400, headers: corsHeaders });
+        }
+
+        // LOG DATA YANG DITERIMA (Akan muncul di Tab 'Logs' di Dashboard Cloudflare)
+        console.log("DATA DARI BLOGGER:", JSON.stringify(body));
+
         if (!body || !body.messages || !Array.isArray(body.messages)) {
-          return new Response(JSON.stringify({ error: "Format JSON tidak valid atau 'messages' tidak ditemukan." }), { status: 400, headers: corsHeaders });
+          return new Response(JSON.stringify({ error: "Field 'messages' tidak ditemukan atau bukan array." }), { status: 400, headers: corsHeaders });
         }
 
         const streamRequested = body.stream === true;
         
-        // Bersihkan dan batasi pesan
         const messages = body.messages.slice(-6).map(m => ({
           role: m.role === "user" ? "user" : "assistant",
-          content: String(m.content).substring(0, 4000)
+          content: String(m.content || "").substring(0, 4000)
         }));
 
-        // Panggil Cloudflare AI
+        console.log("Memanggil AI...");
         const aiResponse = await env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
           messages: [
-            { role: "system", content: "Anda adalah ProILKOM AI, asisten akademik Ilmu Komunikasi yang sopan, jelas, dan terstruktur." },
+            { role: "system", content: "Anda adalah ProILKOM AI, asisten akademik Ilmu Komunikasi." },
             ...messages
           ],
           max_tokens: 800,
           stream: streamRequested
         });
 
-        // Kembalikan hasil
         if (streamRequested) {
           return new Response(aiResponse, {
             headers: {
@@ -72,18 +74,14 @@ export default {
         });
 
       } catch (error) {
-        // Jika masih ada error, kita akan tahu persis penyebabnya di log
-        console.error("WORKER CRASH DETAIL:", error.message, error.stack);
-        return new Response(JSON.stringify({ 
-          error: "Server Error: " + error.message 
-        }), { 
+        console.error("CRASH TOTAL:", error.message, error.stack);
+        return new Response(JSON.stringify({ error: "Server Error: " + error.message }), { 
           status: 500, 
           headers: corsHeaders 
         });
       }
     }
 
-    // 4. Metode lain tidak diizinkan
     return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: corsHeaders });
   }
 };
