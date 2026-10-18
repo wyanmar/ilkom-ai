@@ -14,7 +14,6 @@ export default {
     const origin = request.headers.get("Origin");
     const requestOrigin = url.origin;
 
-    // Izinkan jika tidak ada Origin, atau Origin sama dengan domain Worker, atau ada di ALLOWED_ORIGINS
     const isAllowed = !origin || origin === requestOrigin || ALLOWED_ORIGINS.includes(origin);
 
     const corsHeaders = {
@@ -23,14 +22,12 @@ export default {
       "Access-Control-Allow-Headers": "Content-Type",
     };
 
-    // CORS preflight
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
     }
 
-    // Status saat dibuka di browser
     if (request.method === "GET") {
-      return new Response("✅ ProILKOM AI Backend is running and ready to serve!", {
+      return new Response("ProILKOM AI backend aktif.", {
         headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders },
       });
     }
@@ -39,7 +36,6 @@ export default {
       return new Response("Method Not Allowed", { status: 405, headers: corsHeaders });
     }
 
-    // Validasi Origin
     if (!isAllowed) {
       return new Response(JSON.stringify({ answer: "Akses ditolak: Origin tidak diizinkan." }), {
         status: 403,
@@ -58,7 +54,6 @@ export default {
       return new Response("Missing or invalid messages array", { status: 400, headers: corsHeaders });
     }
 
-    // Batasi riwayat percakapan hanya 6 pesan terakhir agar respon SANGAT CEPAT
     const recentMessages = data.messages.slice(-6);
     const formattedMessages = [
       { role: "system", content: SYSTEM_PROMPT },
@@ -67,10 +62,9 @@ export default {
 
     try {
       if (!env.AI) {
-        throw new Error("Binding AI tidak ditemukan pada Worker ini.");
+        throw new Error("Binding AI tidak ditemukan.");
       }
 
-      // Panggil Cloudflare Workers AI
       const response = await env.AI.run("@cf/meta/llama-3.1-8b-instruct-fp8", {
         messages: formattedMessages,
         max_tokens: 600,
@@ -78,7 +72,7 @@ export default {
       });
 
       return new Response(JSON.stringify({
-        answer: response.response || "(jawaban kosong dari model)",
+        answer: response.response || "(jawaban kosong)",
       }), {
         headers: { "Content-Type": "application/json; charset=utf-8", ...corsHeaders },
       });
@@ -86,7 +80,7 @@ export default {
     } catch (error) {
       console.error("Workers AI Error:", error);
       return new Response(JSON.stringify({ 
-        answer: "Maaf, sistem sedang mengalami gangguan teknis. Silakan coba lagi dalam beberapa saat." 
+        answer: "Maaf, sistem sedang mengalami gangguan teknis." 
       }), {
         status: 500,
         headers: { "Content-Type": "application/json; charset=utf-8", ...corsHeaders },
