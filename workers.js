@@ -10,77 +10,42 @@ Aturan Wajib:
 
 export default {
   async fetch(request, env, ctx) {
+    const origin = request.headers.get("Origin");
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": origin && ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    };
+
     // 1. Handle CORS Preflight (OPTIONS)
     if (request.method === "OPTIONS") {
-      return new Response(null, {
-        headers: {
-          "Access-Control-Allow-Origin": request.headers.get("Origin") || ALLOWED_ORIGINS[0],
-          "Access-Control-Allow-Methods": "POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
-          "Access-Control-Max-Age": "86400",
-        },
+      return new Response(null, { headers: corsHeaders });
+    }
+
+    // 2. Handle GET Request (Hanya untuk menampilkan status bahwa Worker aktif)
+    if (request.method === "GET") {
+      return new Response("✅ ProILKOM AI Backend is running and ready to serve!", {
+        headers: { ...corsHeaders, "Content-Type": "text/plain" }
       });
     }
 
-    // 2. Validasi Metode HTTP
+    // 3. Validasi Metode HTTP (Hanya terima POST untuk AI)
     if (request.method !== "POST") {
-      return new Response("Method Not Allowed", { status: 405 });
+      return new Response("Method Not Allowed. Please use POST.", { status: 405, headers: corsHeaders });
     }
 
-    // 3. Validasi Origin (Keamanan dasar CORS)
-    const origin = request.headers.get("Origin");
+    // 4. Validasi Origin (Keamanan dasar CORS)
     if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
-      return new Response("Forbidden: Invalid Origin", { status: 403 });
+      return new Response("Forbidden: Invalid Origin", { status: 403, headers: corsHeaders });
     }
 
-    // 4. Parse dan Validasi Body Request
+    // 5. Parse dan Validasi Body Request
     let data;
     try {
       data = await request.json();
     } catch (e) {
-      return new Response("Invalid JSON", { status: 400 });
+      return new Response("Invalid JSON", { status: 400, headers: corsHeaders });
     }
 
     if (!data.messages || !Array.isArray(data.messages) || data.messages.length === 0) {
-      return new Response("Missing or invalid 'messages' array", { status: 400 });
-    }
-
-    // Batasi riwayat percakapan hanya 10 pesan terakhir agar respon CEPAT dan hemat token
-    const recentMessages = data.messages.slice(-10);
-    const formattedMessages = [
-      { role: "system", content: SYSTEM_PROMPT },
-      ...recentMessages
-    ];
-
-    try {
-      // 5. Panggil Cloudflare Workers AI (Model ringan dan cepat)
-      const response = await env.AI.run("@cf/meta/llama-3.1-8b-instruct-fp8", {
-        messages: formattedMessages,
-        max_tokens: 500, // Membatasi panjang jawaban agar loading cepat
-        temperature: 0.7,
-      });
-
-      // 6. Kembalikan Respon dalam Format JSON
-      return new Response(JSON.stringify({ 
-        answer: response.response || "Maaf, terjadi kesalahan pada saat memproses jawaban." 
-      }), {
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": origin,
-        },
-      });
-
-    } catch (error) {
-      console.error("Workers AI Error:", error);
-      return new Response(JSON.stringify({ 
-        answer: "Maaf, sistem sedang mengalami gangguan teknis. Silakan coba lagi dalam beberapa saat." 
-      }), {
-        status: 500,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": origin,
-        },
-      });
-    }
-  }
-};
+      return new Response("Missing or invalid 'messages' array", { status: 40
